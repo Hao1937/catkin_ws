@@ -1,0 +1,25 @@
+# Catkin build files
+build/
+devel/
+install/
+logs/
+
+# 通用 Python 文件
+__pycache__/
+*.py[cod]
+*.egg-info/
+.env
+.venv
+env/
+venv/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Other temporary files
+*.log
+*.bag

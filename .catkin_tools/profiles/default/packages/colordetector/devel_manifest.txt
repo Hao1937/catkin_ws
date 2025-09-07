@@ -1,0 +1,5 @@
+colordetector
+/home/clb/catkin_ws/devel/.private/colordetector/cmake.lock /home/clb/catkin_ws/devel/./cmake.lock
+/home/clb/catkin_ws/devel/.private/colordetector/lib/pkgconfig/colordetector.pc /home/clb/catkin_ws/devel/lib/pkgconfig/colordetector.pc
+/home/clb/catkin_ws/devel/.private/colordetector/share/colordetector/cmake/colordetectorConfig.cmake /home/clb/catkin_ws/devel/share/colordetector/cmake/colordetectorConfig.cmake
+/home/clb/catkin_ws/devel/.private/colordetector/share/colordetector/cmake/colordetectorConfig-version.cmake /home/clb/catkin_ws/devel/share/colordetector/cmake/colordetectorConfig-version.cmake
