@@ -23,7 +23,7 @@ from utils.torch_utils import select_device
 
 # --- 全局变量和模型加载 ---
 # 指定权重文件的绝对路径
-weights_path = '/home/clb/catkin_ws/yolov5/yolov5s.pt' 
+weights_path = '/home/clb/catkin_ws/yolov5/last.pt' 
 device = select_device('') # 自动选择CPU或GPU
 model = None
 names = []
@@ -38,7 +38,7 @@ except Exception as e:
          rospy.logerr(f"提示: 请确保权重文件 '{weights_path}' 存在。")
     exit()
 
-target_classes = ['bottle', 'cup']
+target_classes = ['xuebi', 'kele', 'fenda', 'mozhao']  # 根据您的训练类别调整：雪碧、可乐、芬达、魔爪的拼音标签
 bridge = CvBridge()
 
 # 全局变量用于存储最新的深度图和相机内参

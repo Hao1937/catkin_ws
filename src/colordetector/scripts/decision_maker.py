@@ -32,6 +32,14 @@ COLOR_TO_TARGET_MAP = {
     "yellow": "front_right"
 }
 
+# --- 3. 定义标签到目标区域的映射（针对拼音标签） ---
+LABEL_TO_TARGET_MAP = {
+    "xuebi": "right",    # 雪碧 -> 绿色 -> right
+    "kele":  "left",     # 可乐 -> 红色 -> left
+    "fenda": "front_right", # 芬达 -> 橙色 -> front_right
+    "mozhao": "front_left"  # 魔爪 -> 黑色 -> front_left（或根据需要调整）
+}
+
 # --- 全局变量 ---
 tf_listener = None
 move_base_client = None # 使用actionlib客户端
@@ -174,15 +182,25 @@ def objects_callback(msg):
     r, g, b = list(map(int, re.findall(r'\d+', color_str)))
     color_name = get_color_name(r, g, b)
 
+    # 根据标签或颜色决定目标区域
+    target_zone = None
+    if label in LABEL_TO_TARGET_MAP:
+        target_zone = LABEL_TO_TARGET_MAP[label]
+        decision_info = f"根据标签 '{label}'"
+    elif color_name in COLOR_TO_TARGET_MAP:
+        target_zone = COLOR_TO_TARGET_MAP[color_name]
+        decision_info = f"根据颜色 '{color_name}'"
+    else:
+        decision_info = f"未知标签 '{label}' 或颜色 '{color_name}'"
+
     rospy.loginfo(f"发现最近的物体: {label}, 颜色: {color_name}")
 
-    if color_name in COLOR_TO_TARGET_MAP:
-        target_zone = COLOR_TO_TARGET_MAP[color_name]
+    if target_zone:
         target_coords = TARGET_POSITIONS[target_zone]
         object_map_coords = closest_object['map_coords']
         
         current_state = 'pushing'  # 切换到推罐子状态
-        rospy.loginfo(f"决策: 这是一个 {color_name} {label}。开始执行任务序列。")
+        rospy.loginfo(f"决策: {decision_info}。目标区域: {target_zone}。开始执行任务序列。")
 
         # --- 4. 执行导航序列 ---
         success = False
@@ -214,7 +232,7 @@ def objects_callback(msg):
                 rospy.logwarn("返回观察点失败！")
             current_state = 'cruising'  # 切换回巡航状态
     else:
-        rospy.logwarn(f"未知的颜色 R={r}, G={g}, B={b}，无对应操作。")
+        rospy.logwarn(f"{decision_info}，无对应操作。")
 
 
 def main():
