@@ -39,6 +39,10 @@ processed_objects = set() # 存储已处理过的物体
 current_observation_pose = np.array(TARGET_POSITIONS["starting_point"]) # 机器人当前的观察位置
 TRAVERSAL_STEP = 0.3 # 每次向右移动的步长 (米)
 
+# --- 状态机变量 ---
+current_state = 'cruising'  # 初始状态：巡航
+STATES = ['cruising', 'pushing', 'returning']
+
 def get_color_name(r, g, b):
     """根据RGB值判断颜色名称"""
     # TODO: 这是一个简化的颜色判断，您需要根据实际情况调整阈值
@@ -67,6 +71,18 @@ def parse_position(pos_string):
     except Exception as e:
         rospy.logwarn(f"解析位置字符串失败: {pos_string}, 错误: {e}")
     return None
+
+def cruise(event):
+    """巡航函数：定期移动观察点"""
+    global current_state, current_observation_pose
+    if current_state == 'cruising':
+        next_observation_pose = current_observation_pose.copy()
+        next_observation_pose[1] -= TRAVERSAL_STEP  # 向右移动
+        if move_to_goal(next_observation_pose, OBSERVATION_ORIENTATION):
+            current_observation_pose = next_observation_pose
+            rospy.loginfo(f"巡航：移动到新观察位置: {current_observation_pose}")
+        else:
+            rospy.logwarn("巡航：移动到观察点失败！")
 
 def move_to_goal(goal_coords, orientation=Quaternion(0,0,0,1.0)):
     """使用move_base action导航到目标点（包含位置和姿态）"""
@@ -104,7 +120,10 @@ def objects_callback(msg):
     """
     核心回调函数，接收检测结果，转换坐标，并执行完整的导航和操作序列。
     """
-    global tf_listener, processed_objects, current_observation_pose
+    global tf_listener, processed_objects, current_observation_pose, current_state
+
+    if current_state != 'cruising':
+        return  # 如果不在巡航状态，忽略检测结果
 
     try:
         detected_objects = json.loads(msg.data)
@@ -162,41 +181,44 @@ def objects_callback(msg):
         target_coords = TARGET_POSITIONS[target_zone]
         object_map_coords = closest_object['map_coords']
         
+        current_state = 'pushing'  # 切换到推罐子状态
         rospy.loginfo(f"决策: 这是一个 {color_name} {label}。开始执行任务序列。")
 
         # --- 4. 执行导航序列 ---
-        rospy.loginfo("步骤 1: 导航到物体位置...")
-        if move_to_goal(object_map_coords):
-            rospy.loginfo("步骤 2: 推向目标区域...")
-            if move_to_goal(target_coords):
-                rospy.loginfo("步骤 3: 返回观察点...")
-                if move_to_goal(current_observation_pose, OBSERVATION_ORIENTATION):
-                    rospy.loginfo("任务完成，已返回观察点。")
+        success = False
+        try:
+            rospy.loginfo("步骤 1: 导航到物体位置...")
+            if move_to_goal(object_map_coords):
+                rospy.loginfo("步骤 2: 推向目标区域...")
+                if move_to_goal(target_coords):
+                    success = True
                     processed_objects.add(closest_object['id'])
-
-                    # 步骤 4: 更新观察点，为下一个物体做准备 (向右平移)
-                    rospy.loginfo("步骤 4: 移动到下一个观察位置。")
-                    next_observation_pose = current_observation_pose.copy()
-                    next_observation_pose[1] -= TRAVERSAL_STEP # y轴减少，实现向右移动
-                    
-                    # 移动到新的观察点，并保持正确的朝向
-                    if move_to_goal(next_observation_pose, OBSERVATION_ORIENTATION):
-                        current_observation_pose = next_observation_pose
-                        rospy.loginfo(f"已移动到新的观察位置: {current_observation_pose}")
-                    else:
-                        rospy.logwarn("移动到下一个观察点失败！")
                 else:
-                    rospy.logwarn("返回观察点失败，任务中断。")
+                    rospy.logwarn("推向目标区域失败，任务中断。")
             else:
-                rospy.logwarn("推向目标区域失败，任务中断。")
-        else:
-            rospy.logwarn("导航到物体位置失败，任务中断。")
+                rospy.logwarn("导航到物体位置失败，任务中断。")
+        finally:
+            # 无论成功与否，都尝试返回观察点
+            current_state = 'returning'  # 切换到返回状态
+            rospy.loginfo("步骤 3: 返回观察点...")
+            if move_to_goal(current_observation_pose, OBSERVATION_ORIENTATION):
+                if success:
+                    rospy.loginfo("任务完成，已返回观察点。")
+                    # 更新观察点，为下一个物体做准备 (向右平移)
+                    next_observation_pose = current_observation_pose.copy()
+                    next_observation_pose[1] -= TRAVERSAL_STEP
+                    current_observation_pose = next_observation_pose
+                else:
+                    rospy.logwarn("返回观察点成功，但任务失败。")
+            else:
+                rospy.logwarn("返回观察点失败！")
+            current_state = 'cruising'  # 切换回巡航状态
     else:
         rospy.logwarn(f"未知的颜色 R={r}, G={g}, B={b}，无对应操作。")
 
 
 def main():
-    global tf_listener, move_base_client
+    global tf_listener, move_base_client, current_state
     rospy.init_node('decision_maker_node', anonymous=True)
 
     tf_listener = tf.TransformListener()
@@ -207,9 +229,15 @@ def main():
     move_base_client.wait_for_server()
     rospy.loginfo("move_base action 服务器已连接。")
 
+    # 初始化状态
+    current_state = 'cruising'
+
+    # 启动巡航定时器，每5秒执行一次巡航
+    cruise_timer = rospy.Timer(rospy.Duration(5.0), cruise)
+
     rospy.Subscriber('/detected_objects', String, objects_callback)
 
-    rospy.loginfo("决策节点已启动，正在等待检测结果...")
+    rospy.loginfo("决策节点已启动，正在巡航并等待检测结果...")
 
     rospy.spin()
 
