@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python2
 # -*- coding: utf-8 -*-
 
 import rospy
@@ -77,7 +77,7 @@ def parse_position(pos_string):
             if len(parts) == 3:
                 return tuple(map(float, parts))
     except Exception as e:
-        rospy.logwarn(f"解析位置字符串失败: {pos_string}, 错误: {e}")
+        rospy.logwarn("解析位置字符串失败: {}, 错误: {}".format(pos_string, e))
     return None
 
 def cruise(event):
@@ -88,7 +88,7 @@ def cruise(event):
         next_observation_pose[1] -= TRAVERSAL_STEP  # 向右移动
         if move_to_goal(next_observation_pose, OBSERVATION_ORIENTATION):
             current_observation_pose = next_observation_pose
-            rospy.loginfo(f"巡航：移动到新观察位置: {current_observation_pose}")
+            rospy.loginfo("巡航：移动到新观察位置: {}".format(current_observation_pose))
         else:
             rospy.logwarn("巡航：移动到观察点失败！")
 
@@ -106,7 +106,7 @@ def move_to_goal(goal_coords, orientation=Quaternion(0,0,0,1.0)):
     goal.target_pose.pose.position.y = goal_coords[1]
     goal.target_pose.pose.orientation = orientation
 
-    rospy.loginfo(f"发送导航目标: 位置={goal_coords}, 朝向={orientation.w}")
+    rospy.loginfo("发送导航目标: 位置={}, 朝向={}".format(goal_coords, orientation.w))
     move_base_client.send_goal(goal)
     
     finished_within_time = move_base_client.wait_for_result(rospy.Duration(60.0)) 
@@ -121,7 +121,7 @@ def move_to_goal(goal_coords, orientation=Quaternion(0,0,0,1.0)):
             rospy.loginfo("成功到达目标点！")
             return True
         else:
-            rospy.logwarn(f"导航失败，状态码: {state}")
+            rospy.logwarn("导航失败，状态码: {}".format(state))
             return False
 
 def objects_callback(msg):
@@ -147,7 +147,7 @@ def objects_callback(msg):
     min_distance = float('inf')
 
     for obj in detected_objects:
-        obj_id = f"{obj.get('label', 'unknown')}_{obj.get('position', '')}"
+        obj_id = "{}_{}".format(obj.get('label', 'unknown'), obj.get('position', ''))
         if obj_id in processed_objects:
             continue
 
@@ -162,7 +162,7 @@ def objects_callback(msg):
                 map_coords_h = np.dot(transform_matrix, camera_coords_h)
                 map_coords = map_coords_h[:3]
             except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException) as e:
-                rospy.logwarn(f"坐标变换失败: {e}")
+                rospy.logwarn("坐标变换失败: {}".format(e))
                 continue
 
             # 使用地图坐标系下的距离进行判断
@@ -186,21 +186,21 @@ def objects_callback(msg):
     target_zone = None
     if label in LABEL_TO_TARGET_MAP:
         target_zone = LABEL_TO_TARGET_MAP[label]
-        decision_info = f"根据标签 '{label}'"
+        decision_info = "根据标签 '{}'".format(label)
     elif color_name in COLOR_TO_TARGET_MAP:
         target_zone = COLOR_TO_TARGET_MAP[color_name]
-        decision_info = f"根据颜色 '{color_name}'"
+        decision_info = "根据颜色 '{}'".format(color_name)
     else:
-        decision_info = f"未知标签 '{label}' 或颜色 '{color_name}'"
+        decision_info = "未知标签 '{}' 或颜色 '{}'".format(label, color_name)
 
-    rospy.loginfo(f"发现最近的物体: {label}, 颜色: {color_name}")
+    rospy.loginfo("发现最近的物体: {}, 颜色: {}".format(label, color_name))
 
     if target_zone:
         target_coords = TARGET_POSITIONS[target_zone]
         object_map_coords = closest_object['map_coords']
         
         current_state = 'pushing'  # 切换到推罐子状态
-        rospy.loginfo(f"决策: {decision_info}。目标区域: {target_zone}。开始执行任务序列。")
+        rospy.loginfo("决策: {}。目标区域: {}。开始执行任务序列。".format(decision_info, target_zone))
 
         # --- 4. 执行导航序列 ---
         success = False
@@ -232,7 +232,7 @@ def objects_callback(msg):
                 rospy.logwarn("返回观察点失败！")
             current_state = 'cruising'  # 切换回巡航状态
     else:
-        rospy.logwarn(f"{decision_info}，无对应操作。")
+        rospy.logwarn("{}，无对应操作。".format(decision_info))
 
 
 def main():
