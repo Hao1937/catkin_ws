@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import rospy
 from sensor_msgs.msg import Image, CameraInfo
-from cv_bridge import CvBridge
 import cv2
 import numpy as np
 from std_msgs.msg import String
@@ -39,7 +38,6 @@ except Exception as e:
     exit()
 
 target_classes = ['xuebi', 'kele', 'fenda', 'mozhao']  # 根据您的训练类别调整：雪碧、可乐、芬达、魔爪的拼音标签
-bridge = CvBridge()
 
 # 添加调试数据：打印类别名称
 print(f"模型类别名称: {names}")
@@ -59,11 +57,11 @@ def depth_callback(msg):
     try:
         # 深度图通常是16位单通道 (16UC1) 或 32位浮点型 (32FC1)
         if msg.encoding == '16UC1':
-            latest_depth_img = bridge.imgmsg_to_cv2(msg, "16UC1")
+            latest_depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape((msg.height, msg.width))
             # 添加调试数据：打印深度图像信息
             print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         elif msg.encoding == '32FC1':
-            latest_depth_img = bridge.imgmsg_to_cv2(msg, "32FC1")
+            latest_depth_img = np.frombuffer(msg.data, dtype=np.float32).reshape((msg.height, msg.width))
             # 添加调试数据：打印深度图像信息
             print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         else:
@@ -92,7 +90,7 @@ def image_callback(msg):
     进行YOLOv5检测，计算相对位置，并发布结果。
     """
     # 添加调试数据：打印图像信息
-    print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
+    # print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
     
     global latest_depth_img, camera_info
     if latest_depth_img is None:
@@ -103,7 +101,7 @@ def image_callback(msg):
         return
 
     try:
-        original_img = bridge.imgmsg_to_cv2(msg, "bgr8")
+        original_img = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
     except Exception as e:
         rospy.logerr(f"无法将ROS图像消息转换为OpenCV图像: {e}")
         return
@@ -212,7 +210,14 @@ def image_callback(msg):
     
     # 发布带边界框的图像
     try:
-        img_msg = bridge.cv2_to_imgmsg(output_img, "bgr8")
+        img_msg = Image()
+        img_msg.header = msg.header  # 使用原始消息的header
+        img_msg.height = output_img.shape[0]
+        img_msg.width = output_img.shape[1]
+        img_msg.encoding = "bgr8"
+        img_msg.is_bigendian = False
+        img_msg.step = output_img.shape[1] * 3
+        img_msg.data = output_img.tobytes()
         pub_image.publish(img_msg)
     except Exception as e:
         rospy.logerr(f"发布图像时出错: {e}")
