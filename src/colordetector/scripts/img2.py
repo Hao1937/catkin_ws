@@ -59,11 +59,11 @@ def depth_callback(msg):
         if msg.encoding == '16UC1':
             latest_depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape((msg.height, msg.width))
             # 添加调试数据：打印深度图像信息
-            print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
+            # print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         elif msg.encoding == '32FC1':
             latest_depth_img = np.frombuffer(msg.data, dtype=np.float32).reshape((msg.height, msg.width))
             # 添加调试数据：打印深度图像信息
-            print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
+           # print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         else:
             rospy.logwarn_throttle(5, f"未处理的深度图像编码: {msg.encoding}")
             latest_depth_img = None
@@ -223,8 +223,8 @@ def image_callback(msg):
         rospy.logerr(f"发布图像时出错: {e}")
 
     # --- 步骤8: 实时显示结果 ---
-    cv2.imshow("YOLO Detection", output_img)
-    cv2.waitKey(1)
+    #cv2.imshow("YOLO Detection", output_img)
+    #cv2.waitKey(1)
 
 if __name__ == '__main__':
     rospy.init_node('yolo_ros_node')

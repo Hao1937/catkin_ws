@@ -1,8 +1,7 @@
-# filepath: /home/clb/catkin_ws/src/colordetector/scripts/img3.py
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import rospy
-from sensor_msgs.msg import Image
+from sensor_msgs.msg import Image, CameraInfo
 import cv2
 import numpy as np
 from std_msgs.msg import String
@@ -11,7 +10,7 @@ import torch
 import os
 import sys
 
-# --- 步骤1: 将YOLOv5源码目录添加到Python路径中 ---
+# --- 步骤1: 将YOLOv5源码目录添加到Python路径中 它会识别冰箱 person等等 为什么？而且请标出框来---
 yolov5_path = '/home/clb/catkin_ws/yolov5'
 if yolov5_path not in sys.path:
     sys.path.append(yolov5_path)
@@ -23,7 +22,7 @@ from utils.torch_utils import select_device
 
 # --- 全局变量和模型加载 ---
 # 指定权重文件的绝对路径
-weights_path = '/home/clb/catkin_ws/yolov5/last.pt' 
+weights_path = '/home/clb/catkin_ws/yolov5/yolov5s.pt' 
 device = select_device('') # 自动选择CPU或GPU
 model = None
 names = []
@@ -38,31 +37,99 @@ except Exception as e:
          print(f"提示: 请确保权重文件 '{weights_path}' 存在。")
     exit()
 
-target_classes = ['xuebi', 'kele', 'fenda', 'mozhao']  # 根据您的训练类别调整：雪碧、可乐、芬达、魔爪的拼音标签
+target_classes = ['cup', 'bottle']  # 只识别杯子和瓶子
 
 # 添加调试数据：打印类别名称
 print(f"模型类别名称: {names}")
 print(f"目标类别: {target_classes}")
 
-# 初始化发布者（移除 pub_image）
+# 全局变量用于存储最新的深度图和相机内参
+latest_depth_img = None
+camera_info = None
+
+# 初始化发布者
 pub_json = rospy.Publisher('/detected_objects', String, queue_size=10)
+pub_image = rospy.Publisher('/yolo_output/image', Image, queue_size=10)
+
+def get_dominant_color(roi):
+    """获取ROI区域的主要颜色（简化版，使用平均颜色）"""
+    if roi.size == 0:
+        return "unknown", [0, 0, 0]
+    # 计算平均颜色
+    avg_color = np.mean(roi, axis=(0, 1))
+    # 转换为BGR到RGB
+    avg_color = avg_color[::-1]  # BGR to RGB
+    # 简单分类颜色
+    r, g, b = avg_color
+    if r > 150 and g < 100 and b < 100:
+        color = "red"
+    elif r < 100 and g > 150 and b < 100:
+        color = "green"
+    elif r < 100 and g < 100 and b > 150:
+        color = "blue"
+    elif r > 150 and g > 150 and b < 100:
+        color = "yellow"
+    elif r > 150 and g < 100 and b > 150:
+        color = "magenta"
+    elif r < 100 and g > 150 and b > 150:
+        color = "cyan"
+    else:
+        color = "unknown"
+    return color, avg_color
+
+def depth_callback(msg):
+    """回调函数，存储最新的深度图像。"""
+    global latest_depth_img
+    try:
+        # 深度图通常是16位单通道 (16UC1) 或 32位浮点型 (32FC1)
+        if msg.encoding == '16UC1':
+            latest_depth_img = np.frombuffer(msg.data, dtype=np.uint16).reshape((msg.height, msg.width))
+            # 添加调试数据：打印深度图像信息
+            # print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
+        elif msg.encoding == '32FC1':
+            latest_depth_img = np.frombuffer(msg.data, dtype=np.float32).reshape((msg.height, msg.width))
+            # 添加调试数据：打印深度图像信息
+            # print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
+        else:
+            rospy.logwarn_throttle(5, f"未处理的深度图像编码: {msg.encoding}")
+            latest_depth_img = None
+    except Exception as e:
+        rospy.logerr(f"转换深度图像时出错: {e}")
+        latest_depth_img = None
+
+def camera_info_callback(msg):
+    """回调函数，存储相机内参。"""
+    global camera_info
+    if camera_info is None:
+        camera_info = msg
+        # 添加调试数据：打印相机内参
+        fx = camera_info.K[0]
+        fy = camera_info.K[4]
+        cx = camera_info.K[2]
+        cy = camera_info.K[5]
+        print(f"相机内参: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}")
+        rospy.loginfo("已接收到相机内参。")
 
 def image_callback(msg):
     """
     处理ROS彩色图像消息的回调函数。
-    进行YOLOv5检测，并发布结果。
+    进行YOLOv5检测，识别杯子和瓶子的颜色，并发布结果。
     """
     # 添加调试数据：打印图像信息
-    print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
+    # print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
     
+    global latest_depth_img, camera_info
+    if latest_depth_img is None:
+        rospy.logwarn_throttle(5, "正在等待深度图像...")
+        return
+    if camera_info is None:
+        rospy.logwarn_throttle(5, "正在等待相机内参...")
+        return
+
     try:
-        # 使用 numpy 直接转换（假设 BGR8 编码）
-        height, width = msg.height, msg.width
-        channels = 3  # BGR8
-        original_img = np.frombuffer(msg.data, dtype=np.uint8).reshape((height, width, channels))
-        original_img = cv2.cvtColor(original_img, cv2.COLOR_RGB2BGR)  # 如果需要调整顺序
+        original_img = np.frombuffer(msg.data, dtype=np.uint8).reshape((msg.height, msg.width, 3))
     except Exception as e:
-        print(f"转换图像失败: {e}")
+        rospy.logerr(f"无法将ROS图像消息转换为OpenCV图像: {e}")
         return
 
     # --- 步骤4: 准备图片 (YOLOv5) ---
@@ -102,45 +169,105 @@ def image_callback(msg):
                 # 添加调试数据：打印所有检测到的类别
                 print(f"检测到类别: {label_name}, 置信度: {conf:.2f}")
                 
+                # 只处理目标类别
                 if label_name in target_classes:
                     x1, y1, x2, y2 = map(int, xyxy)
                     
-                    # 准备标签文本（无深度信息）
-                    label = f'{label_name} {conf:.2f}'
+                    # --- 获取深度和计算3D坐标 ---
+                    center_x, center_y = (x1 + x2) // 2, (y1 + y2) // 2
                     
-                    # 绘制边界框和标签（可选，移除 cv2.imshow()）
+                    # 确保坐标在深度图范围内
+                    if 0 <= center_y < latest_depth_img.shape[0] and 0 <= center_x < latest_depth_img.shape[1]:
+                        depth = latest_depth_img[center_y, center_x]
+                        
+                        # 处理深度值（16UC1单位为mm，32FC1单位为m）
+                        if latest_depth_img.dtype == np.uint16:
+                            depth_m = depth / 1000.0
+                        else:
+                            depth_m = depth
+
+                        if depth_m > 0:
+                            # 从相机内参获取焦距和光心
+                            fx = camera_info.K[0]
+                            fy = camera_info.K[4]
+                            cx = camera_info.K[2]
+                            cy = camera_info.K[5]
+
+                            # 计算相机坐标
+                            cam_x = (center_x - cx) * depth_m / fx
+                            cam_y = (center_y - cy) * depth_m / fy
+                            cam_z = depth_m
+                            
+                            # 添加调试数据：打印深度和坐标信息
+                            print(f"中心点: ({center_x}, {center_y}), 深度值: {depth} mm ({depth_m:.2f} m)")
+                            print(f"计算的相机坐标: x={cam_x:.2f}, y={cam_y:.2f}, z={cam_z:.2f}")
+                            
+                            pos_str = f"Pos:({cam_x:.2f},{cam_y:.2f},{cam_z:.2f})m"
+                            print(f"位置字符串: {pos_str}")
+                            rospy.loginfo(f"检测到 '{label_name}': {pos_str}")
+                        else:
+                            pos_str = "Pos: Invalid depth"
+                            print(f"无效深度值: {depth} (中心点: {center_x}, {center_y})")
+                    else:
+                        pos_str = "Pos: Out of bounds"
+                        print(f"中心点超出范围: ({center_x}, {center_y}), 深度图形状: {latest_depth_img.shape}")
+
+                    # 获取ROI并识别颜色
+                    roi = original_img[y1:y2, x1:x2]
+                    color, avg_color = get_dominant_color(roi)
+                    
+                    # 准备标签文本，包含颜色和位置
+                    label = f'{label_name} {color} {conf:.2f} {pos_str}'
+                    
+                    # 绘制边界框和标签
                     cv2.rectangle(output_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(output_img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
                     # 添加调试数据
-                    print(f"识别成功: 类别={label_name}, 置信度={conf:.2f}, 边界框=[{x1},{y1},{x2},{y2}]")
+                    print(f"识别成功: 类别={label_name}, 颜色={color}, 置信度={conf:.2f}, 边界框=[{x1},{y1},{x2},{y2}]")
                     
-                    # 添加到结果列表（position 设为 N/A）
+                    # 添加到结果列表，包含颜色和位置信息
                     detected_objects.append({
                         'label': label_name,
+                        'color': color,
                         'bbox': [x1, y1, x2, y2],
-                        'position': 'N/A'
+                        'position': pos_str,
+                        'confidence': float(conf)
                     })
 
     # --- 步骤7: 发布结果 ---
     # 添加调试数据
     print(f"检测到 {len(detected_objects)} 个目标对象")
-    # 只发布JSON数据
+    # 发布JSON数据
     pub_json.publish(String(data=json.dumps(detected_objects)))
+    
+    # 发布带边界框的图像
+    try:
+        img_msg = Image()
+        img_msg.header = msg.header  # 使用原始消息的header
+        img_msg.height = output_img.shape[0]
+        img_msg.width = output_img.shape[1]
+        img_msg.encoding = "bgr8"
+        img_msg.is_bigendian = False
+        img_msg.step = output_img.shape[1] * 3
+        img_msg.data = output_img.tobytes()
+        pub_image.publish(img_msg)
+    except Exception as e:
+        rospy.logerr(f"发布图像时出错: {e}")
 
-    # 移除 cv2.imshow() 以避免 GTK 冲突
-    cv2.imshow("YOLO Detection", output_img)
-    cv2.waitKey(1)
+    # --- 步骤8: 实时显示结果 ---
+    #cv2.imshow("YOLO Detection", output_img)
+    #cv2.waitKey(1)
 
 if __name__ == '__main__':
     rospy.init_node('yolo_ros_node')
     
     # 订阅图像话题
     rospy.Subscriber('/camera/color/image_raw', Image, image_callback, queue_size=1)
+    # 订阅深度图像话题
+    rospy.Subscriber('/camera/depth/image_raw', Image, depth_callback, queue_size=1)
+    # 订阅相机内参话题
+    rospy.Subscriber('/camera/depth/camera_info', CameraInfo, camera_info_callback, queue_size=1)
     
-    print("YOLO ROS 节点已启动，正在监听图像话题...")
-    try:
-        rospy.spin()
-    except KeyboardInterrupt:
-        print("Shutting down YOLO ROS node.")
-    # 移除 cv2.destroyAllWindows()
+    rospy.loginfo("YOLO ROS 节点已启动，正在监听图像话题...")
+    rospy.spin()
