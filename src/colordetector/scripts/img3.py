@@ -40,6 +40,10 @@ except Exception as e:
 
 target_classes = ['xuebi', 'kele', 'fenda', 'mozhao']  # 根据您的训练类别调整：雪碧、可乐、芬达、魔爪的拼音标签
 
+# 添加调试数据：打印类别名称
+print(f"模型类别名称: {names}")
+print(f"目标类别: {target_classes}")
+
 # 初始化发布者（移除 pub_image）
 pub_json = rospy.Publisher('/detected_objects', String, queue_size=10)
 
@@ -48,6 +52,9 @@ def image_callback(msg):
     处理ROS彩色图像消息的回调函数。
     进行YOLOv5检测，并发布结果。
     """
+    # 添加调试数据：打印图像信息
+    print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
+    
     try:
         # 使用 numpy 直接转换（假设 BGR8 编码）
         height, width = msg.height, msg.width
@@ -70,8 +77,17 @@ def image_callback(msg):
     # --- 步骤5: 运行推理 (YOLOv5) ---
     pred = model(img, augment=False)[0]
 
+    # 添加调试数据：打印推理结果
+    print(f"推理结果: pred.shape = {pred.shape if pred is not None else 'None'}")
+
     # --- 步骤6: 后处理和绘制 (YOLOv5) ---
     pred = non_max_suppression(pred, 0.4, 0.5, classes=None, agnostic=False)
+
+    # 添加调试数据：打印NMS后的结果
+    print(f"NMS后检测结果数量: {len(pred) if pred else 0}")
+    if pred:
+        for i, det in enumerate(pred):
+            print(f"  批次 {i}: 检测到 {len(det)} 个物体")
 
     detected_objects = []
     output_img = original_img.copy()
@@ -83,6 +99,9 @@ def image_callback(msg):
             for *xyxy, conf, cls in reversed(det):
                 label_name = names[int(cls)]
                 
+                # 添加调试数据：打印所有检测到的类别
+                print(f"检测到类别: {label_name}, 置信度: {conf:.2f}")
+                
                 if label_name in target_classes:
                     x1, y1, x2, y2 = map(int, xyxy)
                     
@@ -93,6 +112,9 @@ def image_callback(msg):
                     cv2.rectangle(output_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(output_img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
                     
+                    # 添加调试数据
+                    print(f"识别成功: 类别={label_name}, 置信度={conf:.2f}, 边界框=[{x1},{y1},{x2},{y2}]")
+                    
                     # 添加到结果列表（position 设为 N/A）
                     detected_objects.append({
                         'label': label_name,
@@ -101,12 +123,14 @@ def image_callback(msg):
                     })
 
     # --- 步骤7: 发布结果 ---
+    # 添加调试数据
+    print(f"检测到 {len(detected_objects)} 个目标对象")
     # 只发布JSON数据
     pub_json.publish(String(data=json.dumps(detected_objects)))
 
     # 移除 cv2.imshow() 以避免 GTK 冲突
-    # cv2.imshow("YOLO Detection", output_img)
-    # cv2.waitKey(1)
+    cv2.imshow("YOLO Detection", output_img)
+    cv2.waitKey(1)
 
 if __name__ == '__main__':
     rospy.init_node('yolo_ros_node')

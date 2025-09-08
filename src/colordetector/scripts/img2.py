@@ -41,6 +41,10 @@ except Exception as e:
 target_classes = ['xuebi', 'kele', 'fenda', 'mozhao']  # 根据您的训练类别调整：雪碧、可乐、芬达、魔爪的拼音标签
 bridge = CvBridge()
 
+# 添加调试数据：打印类别名称
+print(f"模型类别名称: {names}")
+print(f"目标类别: {target_classes}")
+
 # 全局变量用于存储最新的深度图和相机内参
 latest_depth_img = None
 camera_info = None
@@ -56,8 +60,12 @@ def depth_callback(msg):
         # 深度图通常是16位单通道 (16UC1) 或 32位浮点型 (32FC1)
         if msg.encoding == '16UC1':
             latest_depth_img = bridge.imgmsg_to_cv2(msg, "16UC1")
+            # 添加调试数据：打印深度图像信息
+            print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         elif msg.encoding == '32FC1':
             latest_depth_img = bridge.imgmsg_to_cv2(msg, "32FC1")
+            # 添加调试数据：打印深度图像信息
+            print(f"接收到深度图像: 编码={msg.encoding}, 形状={latest_depth_img.shape}, 数据类型={latest_depth_img.dtype}")
         else:
             rospy.logwarn_throttle(5, f"未处理的深度图像编码: {msg.encoding}")
             latest_depth_img = None
@@ -70,6 +78,12 @@ def camera_info_callback(msg):
     global camera_info
     if camera_info is None:
         camera_info = msg
+        # 添加调试数据：打印相机内参
+        fx = camera_info.K[0]
+        fy = camera_info.K[4]
+        cx = camera_info.K[2]
+        cy = camera_info.K[5]
+        print(f"相机内参: fx={fx:.1f}, fy={fy:.1f}, cx={cx:.1f}, cy={cy:.1f}")
         rospy.loginfo("已接收到相机内参。")
 
 def image_callback(msg):
@@ -77,6 +91,9 @@ def image_callback(msg):
     处理ROS彩色图像消息的回调函数。
     进行YOLOv5检测，计算相对位置，并发布结果。
     """
+    # 添加调试数据：打印图像信息
+    print(f"接收到图像: 宽度={msg.width}, 高度={msg.height}, 编码={msg.encoding}")
+    
     global latest_depth_img, camera_info
     if latest_depth_img is None:
         rospy.logwarn_throttle(5, "正在等待深度图像...")
@@ -103,8 +120,17 @@ def image_callback(msg):
     # --- 步骤5: 运行推理 (YOLOv5) ---
     pred = model(img, augment=False)[0]
 
+    # 添加调试数据：打印推理结果
+    print(f"推理结果: pred.shape = {pred.shape if pred is not None else 'None'}")
+
     # --- 步骤6: 后处理和绘制 (YOLOv5) ---
     pred = non_max_suppression(pred, 0.4, 0.5, classes=None, agnostic=False)
+
+    # 添加调试数据：打印NMS后的结果
+    print(f"NMS后检测结果数量: {len(pred) if pred else 0}")
+    if pred:
+        for i, det in enumerate(pred):
+            print(f"  批次 {i}: 检测到 {len(det)} 个物体")
 
     detected_objects = []
     output_img = original_img.copy()
@@ -115,6 +141,9 @@ def image_callback(msg):
 
             for *xyxy, conf, cls in reversed(det):
                 label_name = names[int(cls)]
+                
+                # 添加调试数据：打印所有检测到的类别
+                print(f"检测到类别: {label_name}, 置信度: {conf:.2f}")
                 
                 if label_name in target_classes:
                     x1, y1, x2, y2 = map(int, xyxy)
@@ -144,12 +173,19 @@ def image_callback(msg):
                             cam_y = (center_y - cy) * depth_m / fy
                             cam_z = depth_m
                             
+                            # 添加调试数据：打印深度和坐标信息
+                            print(f"中心点: ({center_x}, {center_y}), 深度值: {depth} mm ({depth_m:.2f} m)")
+                            print(f"计算的相机坐标: x={cam_x:.2f}, y={cam_y:.2f}, z={cam_z:.2f}")
+                            
                             pos_str = f"Pos:({cam_x:.2f},{cam_y:.2f},{cam_z:.2f})m"
+                            print(f"位置字符串: {pos_str}")
                             rospy.loginfo(f"检测到 '{label_name}': {pos_str}")
                         else:
                             pos_str = "Pos: Invalid depth"
+                            print(f"无效深度值: {depth} (中心点: {center_x}, {center_y})")
                     else:
                         pos_str = "Pos: Out of bounds"
+                        print(f"中心点超出范围: ({center_x}, {center_y}), 深度图形状: {latest_depth_img.shape}")
 
                     # 准备标签文本
                     label = f'{label_name} {conf:.2f} {pos_str}'
@@ -157,6 +193,9 @@ def image_callback(msg):
                     # 绘制边界框和标签
                     cv2.rectangle(output_img, (x1, y1), (x2, y2), (0, 255, 0), 2)
                     cv2.putText(output_img, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    
+                    # 添加调试数据
+                    print(f"识别成功: 类别={label_name}, 置信度={conf:.2f}, 边界框=[{x1},{y1},{x2},{y2}]")
                     
                     # 添加到结果列表
                     detected_objects.append({
@@ -166,6 +205,8 @@ def image_callback(msg):
                     })
 
     # --- 步骤7: 发布结果 ---
+    # 添加调试数据
+    print(f"检测到 {len(detected_objects)} 个目标对象")
     # 发布JSON数据
     pub_json.publish(String(data=json.dumps(detected_objects)))
     
