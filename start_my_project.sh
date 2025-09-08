@@ -46,11 +46,12 @@ sleep 2
 # --- 命令 4: 运行您的 Python 脚本 ---
 # 注意: 这里的命令会先 cd 到工作区目录，再执行 python 脚本
 TITLE_4="Python Script"
-COMMAND_4="cd $CATKIN_WS_PATH/src/colordetector/scripts; rosrun colordetector img2.py"
+COMMAND_4="cd $CATKIN_WS_PATH/src/colordetector/scripts; python3 img3.py"
 echo "4. 启动: $COMMAND_4"
-gnome-terminal --tab --title="$TITLE_4" -- bash -c "$SOURCE_CMD; $COMMAND_4; exec bash"
+gnome-terminal --tab --title="$TITLE_4" -- bash -c "$SOURCE_CMD; $COMMAND_4; exec python3"
 sleep 2
 
+'''
 # --- 命令 5: 运行您的 decisionmaker 脚本 ---
 # 注意: 这里的命令会先 cd 到工作区目录，再执行 python 脚本
 TITLE_4="Python Script"
@@ -58,5 +59,6 @@ COMMAND_4="cd $CATKIN_WS_PATH/src/colordetector/scripts; rosrun colordetector de
 echo "4. 启动: $COMMAND_4"
 gnome-terminal --tab --title="$TITLE_4" -- bash -c "$SOURCE_CMD; $COMMAND_4; exec bash"
 sleep 2
+'''
 
 echo "✅  所有命令已在新的终端标签页中启动！"
