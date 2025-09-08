@@ -176,6 +176,10 @@ def image_callback(msg):
     except Exception as e:
         rospy.logerr(f"发布图像时出错: {e}")
 
+    # --- 步骤8: 实时显示结果 ---
+    cv2.imshow("YOLO Detection", output_img)
+    cv2.waitKey(1)
+
 if __name__ == '__main__':
     rospy.init_node('yolo_ros_node')
     
